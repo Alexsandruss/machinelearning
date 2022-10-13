@@ -53,6 +53,10 @@
   <PropertyGroup>
     <OneDalLibExtension Condition="'$(OS)' == 'Windows_NT'">.$(OneDalBinaryMajorVersion)$(NativeLibExtension)</OneDalLibExtension>
     <OneDalLibExtension Condition="'$(OS)' != 'Windows_NT'">$(NativeLibExtension).$(OneDalBinaryMajorVersion).$(OneDalBinaryMinorVersion)</OneDalLibExtension>
+
+    <OneDalLibDir Condition="'$(OS)' == 'Windows_NT'">redist\intel64</OneDalLibDir>
+    <OneDalLibDir Condition="'$(OS)' != 'Windows_NT'">lib\intel64</OneDalLibDir>
+    <OneDalLibDir Condition="$([MSBuild]::IsOSPlatform('osx'))">lib</OneDalLibDir>
   </PropertyGroup>
 
   <Target Name="BuildNativeUnix"
@@ -104,10 +108,10 @@
 
     <!-- Copy OneDal -->
     <Copy Condition="'$(TargetArchitecture)' != 'arm64' And '$(TargetArchitecture)' != 'arm'"
-          SourceFiles="$(NuGetPackageRoot)inteldal.devel-reduced.$(PackageRid)\$(OneDalDevelReducedPackageVersion)\build\native\daal\lib\intel64\$(NativeLibPrefix)onedal_core$(OneDalLibExtension)"
+          SourceFiles="$(NuGetPackageRoot)inteldal.devel-reduced.$(PackageRid)\$(OneDalDevelReducedPackageVersion)\build\native\daal\$(OneDalLibDir)\$(NativeLibPrefix)onedal_core$(OneDalLibExtension)"
           DestinationFolder="$(NativeAssetsBuiltPath)" />
     <Copy Condition="'$(TargetArchitecture)' != 'arm64' And '$(TargetArchitecture)' != 'arm'"
-          SourceFiles="$(NuGetPackageRoot)inteldal.devel-reduced.$(PackageRid)\$(OneDalDevelReducedPackageVersion)\build\native\daal\lib\intel64\$(NativeLibPrefix)onedal_thread$(OneDalLibExtension)"
+          SourceFiles="$(NuGetPackageRoot)inteldal.devel-reduced.$(PackageRid)\$(OneDalDevelReducedPackageVersion)\build\native\daal\$(OneDalLibDir)\$(NativeLibPrefix)onedal_thread$(OneDalLibExtension)"
           DestinationFolder="$(NativeAssetsBuiltPath)" />
 
     <ItemGroup>
