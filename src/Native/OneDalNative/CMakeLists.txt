@@ -1,12 +1,10 @@
 project (OneDalNative)
 
-if(NOT ${ARCHITECTURE} MATCHES "arm.*")
-    add_definitions(-DUSESSE)
-endif()
-
 set(USE_DPCPP no)
 set(TARGET_LINK dynamic)
 set(USE_PARALLEL yes)
+
+set(TBB_FIND_COMPONENTS "tbb;tbbmalloc")
 
 set(DALROOT "${ONEDAL_LIB_PATH}/daal")
 

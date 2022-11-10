@@ -32,11 +32,253 @@ bool getVerboseVariable()
 /*
     Decision Forest regression tree traveler
 */
+template <typename FPType>
+class RegressorNodeVisitor : public daal::algorithms::tree_utils::regression::TreeNodeVisitor
+{
+public:
+    RegressorNodeVisitor(size_t numberOfLeaves, bool verbose)
+    {
+        _verbose = verbose;
+        _numberOfLeaves = numberOfLeaves;
+        _lteChild = new int[_numberOfLeaves - 1];
+        _gtChild = new int[_numberOfLeaves - 1];
+        _splitFeature = new int[_numberOfLeaves - 1];
+        _featureThreshold = new FPType[_numberOfLeaves - 1];
+        _leafValues = new FPType[_numberOfLeaves];
+
+        _currentNode = 0;
+        _currentLeaf = -1;
+        _previousLevel = 0;
+        _previousNodes = new size_t[1024];
+    }
+
+    virtual bool onLeafNode(const tree_utils::regression::LeafNodeDescriptor & desc)
+    {
+        // step down
+        if (desc.level == _previousLevel + 1)
+        {
+            _lteChild[_previousNodes[_previousLevel]] = _currentLeaf;
+        }
+        // switch to different branch
+        else
+        {
+            _gtChild[_previousNodes[desc.level - 1]] = _currentLeaf;
+        }
+        _leafValues[-_currentLeaf - 1] = desc.response;
+        _previousLevel = desc.level;
+        _currentLeaf--;
+
+        if (_verbose)
+        {
+            for (size_t i = 0; i < desc.level; ++i) std::cout << "  ";
+            std::cout << "Level " << desc.level << ", leaf node. Response value = " << desc.response << ", Impurity = " << desc.impurity
+                      << ", Number of samples = " << desc.nNodeSampleCount << std::endl;
+
+            for (size_t i = 0; i < desc.level; ++i) std::cout << "  ";
+            std::cout << "DEBUG: current level " << _previousLevel << " currentLeaf " << _currentLeaf + 1 << " previousNodes";
+        }
+
+        return true;
+    }
+
+    virtual bool onSplitNode(const tree_utils::regression::SplitNodeDescriptor & desc)
+    {
+        // step down or root node
+        if (desc.level == _previousLevel + 1 || desc.level == 0)
+        {
+            if (desc.level != 0)
+                _lteChild[_previousNodes[_previousLevel]] = _currentNode;
+        }
+        // switch to different branch
+        else
+        {
+            _gtChild[_previousNodes[desc.level - 1]] = _currentNode;
+        }
+        _splitFeature[_currentNode] = desc.featureIndex;
+        _featureThreshold[_currentNode] = desc.featureValue;
+        _previousNodes[desc.level] = _currentNode;
+        _previousLevel = desc.level;
+        _currentNode++;
+
+        if (_verbose)
+        {
+            for (size_t i = 0; i < desc.level; ++i) std::cout << "  ";
+            std::cout << "Level " << desc.level << ", split node. Feature index = " << desc.featureIndex << ", feature value = " << desc.featureValue
+                      << ", Impurity = " << desc.impurity << ", Number of samples = " << desc.nNodeSampleCount << std::endl;
+
+            for (size_t i = 0; i < desc.level; ++i) std::cout << "  ";
+            std::cout << "DEBUG: current level " << _previousLevel << " currentNode " << _currentNode - 1 << " previousNodes";
+            for (size_t i = 0; i < desc.level; ++i)
+                std::cout << " " << _previousNodes[i];
+            std::cout << std::endl;
+        }
+
+        return true;
+    }
+
+    void copyTreeStructureToBuffers(int * lteChild, int * gtChild, int * splitFeature, FPType * featureThreshold, FPType * leafValues)
+    {
+        for (size_t i = 0; i < _numberOfLeaves - 1; ++i)
+        {
+            lteChild[i] = _lteChild[i];
+            gtChild[i] = _gtChild[i];
+            splitFeature[i] = _splitFeature[i];
+            featureThreshold[i] = _featureThreshold[i];
+            leafValues[i] = _leafValues[i];
+        }
+        leafValues[_numberOfLeaves - 1] = _leafValues[_numberOfLeaves - 1];
+
+        if (_verbose)
+        {
+            printf("Number of leaves: %d\n", -_currentLeaf - 1);
+            printf("Number of nodes: %lu\n", _currentNode);
+        }
+    }
+
+    ~RegressorNodeVisitor()
+    {
+        delete[] _previousNodes;
+        delete[] _lteChild;
+        delete[] _gtChild;
+        delete[] _splitFeature;
+        delete[] _featureThreshold;
+        delete[] _leafValues;
+    }
+
+    size_t _numberOfLeaves;
+    int * _lteChild;
+    int * _gtChild;
+    int * _splitFeature;
+    FPType * _featureThreshold;
+    FPType * _leafValues;
+
+    size_t * _previousNodes;
+    size_t _currentNode;
+    int _currentLeaf;
+    size_t _previousLevel;
+    bool _verbose;
+};
 
 /*
     ### Decision Forest regression wrappers ###
 
+    [DllImport(OneDalLibPath, EntryPoint = "decisionForestRegressionCompute")]
+    public static extern unsafe int DecisionForestRegressionCompute(
+        void* featuresPtr, void* labelsPtr, long nRows, int nColumns, int numberOfThreads,
+        float featureFractionPerSplit, int numberOfTrees, int numberOfLeaves, int minimumExampleCountPerLeaf, int maxBins,
+        void* lteChildPtr, void* gtChildPtr, void* splitFeaturePtr, void* featureThresholdPtr, void* leafValuesPtr, void* modelPtr)
 */
+template <typename FPType>
+int decisionForestRegressionComputeTemplate(
+    FPType * featuresPtr, FPType * labelsPtr, long long nRows, int nColumns,
+    int numberOfThreads, float featureFractionPerSplit, int numberOfTrees, int numberOfLeaves, int minimumExampleCountPerLeaf, int maxBins,
+    int * lteChildPtr, int * gtChildPtr, int * splitFeaturePtr, FPType * featureThresholdPtr, FPType * leafValuesPtr, byte* modelPtr)
+{
+    bool verbose = getVerboseVariable();
+    if (verbose)
+    {
+        printf("%s\n", "Decision Forest Regression parameters:");
+        printf("\t%s - %d\n", "numberOfThreads", numberOfThreads);
+        printf("\t%s - %d\n", "numberOfTrees", numberOfTrees);
+        printf("\t%s - %.6f\n", "featureFractionPerSplit", featureFractionPerSplit);
+        printf("\t%s - %d\n", "featureFractionPerSplit(int)", (int)(nColumns * featureFractionPerSplit));
+        printf("\t%s - %d\n", "numberOfLeaves", numberOfLeaves);
+        printf("\t%s - %d\n", "minimumExampleCountPerLeaf", minimumExampleCountPerLeaf);
+        printf("\t%s - %d\n", "maxBins", maxBins);
+    }
+
+    if (numberOfThreads != 0)
+        Environment::getInstance()->setNumberOfThreads(numberOfThreads);
+
+    NumericTablePtr featuresTable(new HomogenNumericTable<FPType>(featuresPtr, nColumns, nRows));
+    NumericTablePtr labelsTable(new HomogenNumericTable<FPType>(labelsPtr, 1, nRows));
+
+    decision_forest::regression::training::Batch<FPType, decision_forest::regression::training::hist> algorithm;
+
+    algorithm.input.set(decision_forest::regression::training::data, featuresTable);
+    algorithm.input.set(decision_forest::regression::training::dependentVariable, labelsTable);
+
+    algorithm.parameter().nTrees                         = numberOfTrees;
+    algorithm.parameter().observationsPerTreeFraction    = 1;
+    algorithm.parameter().featuresPerNode                = (int)(nColumns * featureFractionPerSplit);
+    algorithm.parameter().maxTreeDepth                   = 0; // unlimited growth in depth
+    algorithm.parameter().impurityThreshold              = 0;
+    algorithm.parameter().varImportance                  = algorithms::decision_forest::training::MDI;
+    algorithm.parameter().resultsToCompute               = algorithms::decision_forest::training::computeOutOfBagError;
+    algorithm.parameter().bootstrap                      = true;
+    algorithm.parameter().minObservationsInLeafNode      = minimumExampleCountPerLeaf;
+    algorithm.parameter().minObservationsInSplitNode     = 2;
+    algorithm.parameter().minWeightFractionInLeafNode    = 0;
+    algorithm.parameter().minImpurityDecreaseInSplitNode = 0;
+    algorithm.parameter().maxLeafNodes                   = numberOfLeaves;
+    algorithm.parameter().maxBins                        = maxBins;
+    algorithm.parameter().minBinSize                     = 5;
+
+    algorithm.compute();
+
+    decision_forest::regression::training::ResultPtr trainingResult = algorithm.getResult();
+    decision_forest::regression::ModelPtr model = trainingResult->get(decision_forest::regression::training::model);
+
+    InputDataArchive dataArch;
+    trainingResult->serialize(dataArch);
+    int modelSize = dataArch.getSizeOfArchive();
+    dataArch.copyArchiveToArray(modelPtr, modelSize);
+
+    for (size_t i = 0; i < numberOfTrees; ++i)
+    {
+        RegressorNodeVisitor<FPType> visitor(numberOfLeaves, verbose);
+        model->traverseDFS(i, visitor);
+
+        visitor.copyTreeStructureToBuffers(
+            lteChildPtr + i * (numberOfLeaves - 1),
+            gtChildPtr + i * (numberOfLeaves - 1),
+            splitFeaturePtr + i * (numberOfLeaves - 1),
+            featureThresholdPtr + i * (numberOfLeaves - 1),
+            leafValuesPtr + i * numberOfLeaves
+        );
+
+        if (verbose)
+        {
+            printf("lteChild:\n");
+            for (size_t j = 0; j < numberOfLeaves - 1; ++j)
+                printf("%d ", lteChildPtr[i * (numberOfLeaves - 1) + j]);
+            printf("\n");
+
+            printf("gtChild:\n");
+            for (size_t j = 0; j < numberOfLeaves - 1; ++j)
+                printf("%d ", gtChildPtr[i * (numberOfLeaves - 1) + j]);
+            printf("\n");
+
+            printf("splitFeature:\n");
+            for (size_t j = 0; j < numberOfLeaves - 1; ++j)
+                printf("%d ", splitFeaturePtr[i * (numberOfLeaves - 1) + j]);
+            printf("\n");
+
+            printf("featureThreshold:\n");
+            for (size_t j = 0; j < numberOfLeaves - 1; ++j)
+                printf("%f ", featureThresholdPtr[i * (numberOfLeaves - 1) + j]);
+            printf("\n");
+
+            printf("leafValues:\n");
+            for (size_t j = 0; j < numberOfLeaves; ++j)
+                printf("%f ", leafValuesPtr[i * numberOfLeaves + j]);
+            printf("\n");
+        }
+    }
+
+    return modelSize;
+}
+
+EXPORT_API(int) decisionForestRegressionCompute(
+    void * featuresPtr, void * labelsPtr, long long nRows, int nColumns,
+    int numberOfThreads, float featureFractionPerSplit, int numberOfTrees, int numberOfLeaves, int minimumExampleCountPerLeaf, int maxBins,
+    void * lteChildPtr, void * gtChildPtr, void * splitFeaturePtr, void * featureThresholdPtr, void * leafValuesPtr, void* modelPtr)
+{
+    return decisionForestRegressionComputeTemplate<float>(
+        (float *)featuresPtr, (float *)labelsPtr, nRows, nColumns,
+        numberOfThreads, featureFractionPerSplit, numberOfTrees, numberOfLeaves, minimumExampleCountPerLeaf, maxBins,
+        (int *)lteChildPtr, (int *)gtChildPtr, (int *)splitFeaturePtr, (float *)featureThresholdPtr, (float *)leafValuesPtr, (byte *)modelPtr);
+}
 
 /*
     Decision Forest classification tree traveler
