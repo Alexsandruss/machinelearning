@@ -252,7 +252,7 @@ namespace Microsoft.ML.Trainers
                             {
                                 featuresArray[rowOffset * (m - 1) + k] = 0;
                             }
-                            featuresArray[rowOffset * (m - 1) + j] = values[j];
+                            featuresArray[rowOffset * (m - 1) + indices[j]] = values[j];
                             i = indices[j] + 1;
                         }
                         for (int j = i; j < m - 1; ++j)
